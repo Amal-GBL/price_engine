@@ -162,7 +162,7 @@ def extract_training_data() -> pd.DataFrame:
         FROM "DataWarehouse".pepe_in_unicommerce_saleorders s
         LEFT JOIN mapping_dedup md
             ON s."Item SKU Code" = md."Product Code"
-        WHERE s."Order Date as dd/mm/yyyy hh:MM:ss" >= '2025-01-01'
+        WHERE s."Order Date as dd/mm/yyyy hh:MM:ss" >= '2025-06-01'
           AND s."Sale Order Item Status" NOT IN ('CANCELLED','UNFULFILLABLE')
           AND s."Selling Price" > 0
           AND s."Channel Name" NOT ILIKE '%%SOR%%'
@@ -248,7 +248,7 @@ def extract_last_prices() -> pd.DataFrame:
                 END
             )::INT AS price
         FROM "DataWarehouse".pepe_in_unicommerce_saleorders s
-        WHERE s."Order Date as dd/mm/yyyy hh:MM:ss" >= '2025-01-01'
+        WHERE s."Order Date as dd/mm/yyyy hh:MM:ss" >= '2025-06-01'
           AND s."Sale Order Item Status" NOT IN ('CANCELLED','UNFULFILLABLE')
           AND s."Selling Price" > 0
           AND s."Channel Name" NOT ILIKE '%%SOR%%'
@@ -362,9 +362,9 @@ FEATURE_COLS = [
 TARGET_COL = "units_sold"
 
 
-def train_model(df: pd.DataFrame) -> tuple:
+def train_model(df: pd.DataFrame, fast_mode: bool = False) -> tuple:
     """Train XGBoost with time-series aware cross-validation."""
-    log.info("🤖 Training XGBoost demand model...")
+    log.info(f"🤖 Training XGBoost demand model (fast_mode={fast_mode})...")
 
     # Filter to valid rows
     train_df = df.dropna(subset=FEATURE_COLS + [TARGET_COL]).copy()
@@ -372,59 +372,41 @@ def train_model(df: pd.DataFrame) -> tuple:
 
     X = train_df[FEATURE_COLS].values
     y = train_df[TARGET_COL].values
-
-    # Use sample weights = recency weight
     sample_weights = train_df["recency_weight"].values
 
-    # Time-series cross-validation
-    tscv = TimeSeriesSplit(n_splits=3)
     cv_metrics = []
+    
+    if not fast_mode:
+        # Time-series cross-validation
+        tscv = TimeSeriesSplit(n_splits=3)
+        for fold, (train_idx, val_idx) in enumerate(tscv.split(X)):
+            X_tr, X_val = X[train_idx], X[val_idx]
+            y_tr, y_val = y[train_idx], y[val_idx]
+            w_tr = sample_weights[train_idx]
 
-    for fold, (train_idx, val_idx) in enumerate(tscv.split(X)):
-        X_tr, X_val = X[train_idx], X[val_idx]
-        y_tr, y_val = y[train_idx], y[val_idx]
-        w_tr = sample_weights[train_idx]
-
-        model = xgb.XGBRegressor(
-            n_estimators=500,
-            max_depth=7,
-            learning_rate=0.05,
-            subsample=0.8,
-            colsample_bytree=0.8,
-            min_child_weight=5,
-            reg_alpha=0.1,
-            reg_lambda=1.0,
-            random_state=42,
-            tree_method="hist",
-            n_jobs=-1,
-        )
-
-        model.fit(
-            X_tr, y_tr,
-            sample_weight=w_tr,
-            eval_set=[(X_val, y_val)],
-            verbose=False,
-        )
-
-        y_pred = model.predict(X_val)
-        mae = mean_absolute_error(y_val, y_pred)
-        rmse = np.sqrt(mean_squared_error(y_val, y_pred))
-        r2 = r2_score(y_val, y_pred)
-
-        cv_metrics.append({"fold": fold + 1, "MAE": mae, "RMSE": rmse, "R2": r2})
-        log.info(f"   Fold {fold+1}: MAE={mae:.3f}, RMSE={rmse:.3f}, R²={r2:.3f}")
+            model = xgb.XGBRegressor(
+                n_estimators=300,
+                max_depth=6,
+                learning_rate=0.07,
+                tree_method="hist",
+                n_jobs=-1,
+                random_state=42
+            )
+            model.fit(X_tr, y_tr, sample_weight=w_tr, eval_set=[(X_val, y_val)], verbose=False)
+            y_pred = model.predict(X_val)
+            mae = mean_absolute_error(y_val, y_pred)
+            cv_metrics.append({"fold": fold + 1, "MAE": mae})
+            log.info(f"   Fold {fold+1}: MAE={mae:.3f}")
 
     # Final model on all data
-    log.info("   Training final model on full dataset...")
+    n_est = 200 if fast_mode else 600
+    log.info(f"   Training final model with {n_est} estimators...")
     final_model = xgb.XGBRegressor(
-        n_estimators=600,
-        max_depth=7,
-        learning_rate=0.05,
+        n_estimators=n_est,
+        max_depth=6,
+        learning_rate=0.08,
         subsample=0.8,
         colsample_bytree=0.8,
-        min_child_weight=5,
-        reg_alpha=0.1,
-        reg_lambda=1.0,
         random_state=42,
         tree_method="hist",
         n_jobs=-1,
@@ -805,7 +787,7 @@ def main():
         print()
 
 
-def run_full_pipeline(progress_callback=None):
+def run_full_pipeline(progress_callback=None, fast_mode: bool = False):
     """Run the entire ML pipeline and return the dataframes directly."""
     def log_step(msg):
         print(msg)
@@ -827,8 +809,8 @@ def run_full_pipeline(progress_callback=None):
     df = engineer_features(df)
 
     # 3. Train XGBoost model
-    log_step("🧠 Step 3/7: Training XGBoost model...")
-    model, _, _ = train_model(df)
+    log_step(f"🧠 Step 3/7: Training XGBoost model (fast_mode={fast_mode})...")
+    model, _, _ = train_model(df, fast_mode=fast_mode)
 
     # 4. Build simulation grid
     log_step("📏 Step 4/7: Building simulation grid (active stock only)...")

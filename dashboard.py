@@ -68,7 +68,7 @@ section[data-testid="stSidebar"] h2 {
 @st.cache_data(ttl=3600)
 def load_dynamic_data_core():
     # Core data fetching logic (without UI updates for cache stability)
-    preds, recs = run_full_pipeline()
+    preds, recs = run_full_pipeline(fast_mode=True)
     return preds, recs
 
 # Wrapper to handle UI updates
@@ -78,10 +78,7 @@ def load_data_with_status():
         def update_status(msg):
             status.write(msg)
             
-        # We still want the benefit of cache, 
-        # but if it misses, we call the pipeline with callbacks.
-        # Check if cache exists
-        preds, recs = run_full_pipeline(progress_callback=update_status)
+        preds, recs = run_full_pipeline(progress_callback=update_status, fast_mode=True)
         status.update(label="✅ Analysis Complete!", state="complete", expanded=False)
     
     status_placeholder.empty() # Clear the status box after completion
