@@ -804,50 +804,48 @@ def main():
         print()
 
 
-def run_full_pipeline():
+def run_full_pipeline(progress_callback=None):
     """Run the entire ML pipeline and return the dataframes directly."""
-    import streamlit as st
-    
-    # Use st.status for a better UI experience in newer Streamlit versions
-    # or just print to terminal for cloud logs
-    print("🚀 PIPELINE STARTING...")
+    def log_step(msg):
+        print(msg)
+        if progress_callback:
+            progress_callback(msg)
+
+    log_step("🚀 PIPELINE STARTING...")
 
     # 1. Extract data
-    print("📥 Step 1/7: Extracting data from database...")
+    log_step("📥 Step 1/7: Extracting data from database...")
     df = extract_training_data()
     inventory_df = extract_inventory()
     guardrails_df = extract_guardrails()
     last_prices_df = extract_last_prices()
-    print(f"   Done. Found {len(df):,} training records and {len(inventory_df):,} inventory items.")
+    log_step(f"   Done. Found {len(df):,} records.")
 
     # 2. Feature engineering
-    print("⚙️  Step 2/7: Engineering features...")
+    log_step("⚙️  Step 2/7: Engineering features...")
     df = engineer_features(df)
 
     # 3. Train XGBoost model
-    print("🧠 Step 3/7: Training XGBoost model...")
+    log_step("🧠 Step 3/7: Training XGBoost model...")
     model, _, _ = train_model(df)
 
     # 4. Build simulation grid
-    print("📏 Step 4/7: Building simulation grid (filtered by active inventory)...")
-    # CRITICAL OPTIMIZATION: Only simulate SKUs that have inventory
+    log_step("📏 Step 4/7: Building simulation grid (active stock only)...")
     active_skus = inventory_df[inventory_df["inventory"] > 0]["sku"].unique()
     grid_df = build_simulation_grid(df, inventory_df, last_prices_df, guardrails_df)
-    
-    # Filter the grid down to only what stakeholders likely care about (items in stock)
     grid_df = grid_df[grid_df["sku"].isin(active_skus)]
-    print(f"   Done. Simulating {len(grid_df):,} price points for {len(active_skus):,} active SKUs.")
+    log_step(f"   Done. Simulating {len(active_skus):,} SKUs.")
 
     # 5. Simulate with ML
-    print("🔮 Step 5/7: Generating AI predictions...")
+    log_step("🔮 Step 5/7: Generating AI predictions...")
     grid_df = simulate_with_model(model, grid_df)
 
     # 6. Score and rank
-    print("🏆 Step 6/7: Scoring and ranking price points...")
+    log_step("🏆 Step 6/7: Scoring and ranking...")
     grid_df = score_and_rank(grid_df)
     
     # 7. Format Recommendations
-    print("📝 Step 7/7: Formatting recommendations...")
+    log_step("📝 Step 7/7: Formatting recommendations...")
     recs = grid_df[
         grid_df["is_max_profit"] | grid_df["is_max_drr"] | grid_df["is_optimal"]
     ].copy()
@@ -861,8 +859,9 @@ def run_full_pipeline():
 
     recs["recommendation_type"] = recs.apply(get_rec_type, axis=1)
     
-    print("✅ PIPELINE COMPLETE.")
+    log_step("✅ PIPELINE COMPLETE.")
     return grid_df, recs
+
 
 
 if __name__ == "__main__":

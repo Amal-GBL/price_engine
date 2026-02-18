@@ -65,13 +65,28 @@ section[data-testid="stSidebar"] h2 {
 
 # ── Load Data (Dynamic with 1-hr Cache) ──────────────
 @st.cache_data(ttl=3600)
-def load_dynamic_data():
-    # This calls the full ML pipeline directly
+def load_dynamic_data_core():
+    # Core data fetching logic (without UI updates for cache stability)
     preds, recs = run_full_pipeline()
     return preds, recs
 
-with st.spinner("🔄 Deep-diving into data & training ML models... (approx. 40s)"):
-    preds, recs = load_dynamic_data()
+# Wrapper to handle UI updates
+def load_data_with_status():
+    status_placeholder = st.empty()
+    with status_placeholder.status("🔄 AI Pricing Engine initializing...", expanded=True) as status:
+        def update_status(msg):
+            status.write(msg)
+            
+        # We still want the benefit of cache, 
+        # but if it misses, we call the pipeline with callbacks.
+        # Check if cache exists
+        preds, recs = run_full_pipeline(progress_callback=update_status)
+        status.update(label="✅ Analysis Complete!", state="complete", expanded=False)
+    
+    status_placeholder.empty() # Clear the status box after completion
+    return preds, recs
+
+preds, recs = load_data_with_status()
 
 
 # ── Build lookup tables ──────────────────────────────
