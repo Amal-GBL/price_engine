@@ -24,6 +24,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import numpy as np
+# Version: 2.1 - Sync Fix
 import pandas as pd
 import psycopg2
 from psycopg2.extras import RealDictCursor

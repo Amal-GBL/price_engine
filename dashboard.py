@@ -4,6 +4,7 @@ PEPE AI Pricing Engine — Dashboard
 Run:  source venv/bin/activate && streamlit run dashboard.py
 """
 
+# Version: 2.1 - Sync Fix
 import streamlit as st
 import pandas as pd
 import numpy as np
