@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.env
+
+# Streamlit
+.streamlit/secrets.toml
+.streamlit/config.toml
+
+# Data & Output
+output/
+*.csv
+*.xlsx
+*.parquet
+
+# IDEs
+.vscode/
+.idea/
+.DS_Store
