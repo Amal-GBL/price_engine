@@ -17,8 +17,11 @@ The `itemmaster` table contains duplicate records for single SKUs. To ensure rev
 ### 1.2 Channel Normalization (CTE: base_sales)
 Pricing behavior differs across channels. The engine applies a **Reverse Commission Offset** for AJIO to normalize its "Selling Price" against Myntra/Flipkart benchmarks:
 - **AJIO Logic**: `Selling Price + 65` (Normalizes for platform-specific fixed costs).
-- **Exclusions**: Orders with status `CANCELLED` or `UNFULFILLABLE` are removed to prevent phantom demand inflation.
-- **Time Window**: Analysis starts from June 2025 to prioritize the most relevant market trends and consumer behaviors.
+
+### 1.3 Marketplace Slab Integration (V4.1)
+The profit calculation in the Python layer now uses **Net Realization** instead of Gross Revenue. It explicitly models the marketplace commission and "Fixed Fee" slabs that determine true bottom-line profitability:
+- **Flipkart Slabs**: The model accounts for the fixed fee jumps at **₹500** and **₹1000**. If a price increase pushes a SKU into a higher slab (e.g., ₹499 to ₹505), the engine evaluates if the volume drop and fee increase offset the potential margin gain.
+- **ML Sensitivity**: Features `is_sub_500` and `is_sub_1000` are fed into the XGBoost model to help it learn nonlinear consumer abandonment points at these operational thresholds.
 
 ---
 

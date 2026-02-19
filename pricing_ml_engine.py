@@ -305,6 +305,10 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
     df["is_weekend"] = df["dow"].isin([0, 6]).astype(int)
     df["is_month_start"] = (df["day_of_month"] <= 5).astype(int)
     df["is_month_end"] = (df["day_of_month"] >= 25).astype(int)
+    
+    # --- Flipkart Slab awareness ---
+    df["is_sub_500"] = (df["price"] < 500).astype(int)
+    df["is_sub_1000"] = (df["price"] < 1000).astype(int)
 
     # --- Categorical encoding ---
     df["is_event"] = (df["event_flag"] == "Event").astype(int)
@@ -353,6 +357,7 @@ FEATURE_COLS = [
     "price_bucket",
     "dow", "month", "day_of_month", "week_of_year",
     "is_weekend", "is_month_start", "is_month_end",
+    "is_sub_500", "is_sub_1000",
     "is_event", "tag_encoded", "channel_encoded",
     "days_ago", "recency_weight",
     "rolling_units_7d", "rolling_units_14d", "rolling_units_30d",
@@ -567,10 +572,30 @@ def simulate_with_model(model, grid_df: pd.DataFrame) -> pd.DataFrame:
     grid_df["ml_drr"] = grid_df["ml_drr_bau"]
 
 
-    # Compute metrics
-    grid_df["ml_doh"] = grid_df["inventory"] / grid_df["ml_drr"].replace(0, np.nan)
+    # --- Channel-Specific Net Realization (Marketplace Fees & Slabs) ---
+    def get_net_realization(row):
+        p = row["price"]
+        chan = row["channel"]
+        
+        # Default Marketplace Fee (Commission % + Collection % approx 18%)
+        comm_pct = 0.18
+        
+        # Fixed Fees & Packing (Varies by price slab)
+        fixed_fee = 0
+        if chan == "FLIPKART":
+            if p < 500: fixed_fee = 15
+            elif p < 1000: fixed_fee = 40
+            else: fixed_fee = 65
+        elif chan == "MYNTRA":
+            fixed_fee = 35 # Avg fixed + logistic overhead
+        elif chan == "AJIO":
+            fixed_fee = 0 # Handled by the +65 revenue offset already
+            
+        return p * (1 - comm_pct) - fixed_fee
+
+    grid_df["net_realization"] = grid_df.apply(get_net_realization, axis=1)
     grid_df["ml_monthly_profit"] = (
-        np.maximum(grid_df["price"] - grid_df["cost_price"].fillna(0), 0)
+        np.maximum(grid_df["net_realization"] - grid_df["cost_price"].fillna(0), 0)
         * grid_df["ml_drr"]
         * 30
     )
