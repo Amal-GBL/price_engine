@@ -64,27 +64,16 @@ section[data-testid="stSidebar"] h2 {
 """, unsafe_allow_html=True)
 
 
-# ── Load Data (Dynamic with 1-hr Cache) ──────────────
-@st.cache_data(ttl=3600)
-def load_dynamic_data_core():
-    # Core data fetching logic (without UI updates for cache stability)
+# ── Load Data (Global 1-hr Cache) ────────────────────
+@st.cache_data(ttl=3600, show_spinner="🔄 AI Pricing Engine is training models... please wait.")
+def get_cached_analysis():
+    # This runs the actual pipeline and caches the result for 1 hour
+    # We use fast_mode to keep it under 2 mins
     preds, recs = run_full_pipeline(fast_mode=True)
     return preds, recs
 
-# Wrapper to handle UI updates
-def load_data_with_status():
-    status_placeholder = st.empty()
-    with status_placeholder.status("🔄 AI Pricing Engine initializing...", expanded=True) as status:
-        def update_status(msg):
-            status.write(msg)
-            
-        preds, recs = run_full_pipeline(progress_callback=update_status, fast_mode=True)
-        status.update(label="✅ Analysis Complete!", state="complete", expanded=False)
-    
-    status_placeholder.empty() # Clear the status box after completion
-    return preds, recs
-
-preds, recs = load_data_with_status()
+# This will only execute the pipeline on cache miss
+preds, recs = get_cached_analysis()
 
 
 # ── Build lookup tables ──────────────────────────────
