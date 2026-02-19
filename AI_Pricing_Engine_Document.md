@@ -1,88 +1,109 @@
-# Technical Specification: AI-Powered Dynamic Pricing Engine
-## Mathematical Foundations, SQL Orchestration & XGBoost ML Logic
-**Document Version: 3.1**
+# Technical Architecture: AI-Powered Dynamic Pricing Engine
+## Comprehensive Specification: Mathematical Systems, ML Architecture, and Operational Logic
+**Document Version: 4.0 | February 2026**
 
 ---
 
-## 1. Executive Summary
+## 1. Data Foundation & In-Database Orchestration
 
-The Pepe Dynamic Pricing Engine is a multi-layered analytical system that predicts product demand and optimizes price points across Myntra, Flipkart, and AJIO. It replaces static pricing with a probabilistic model that balances profit maximization against inventory liquidation urgency.
+The system utilizes a high-performance PostgreSQL (AWS RDS) data warehouse. The foundation of the logic is contained within the `enhanced_pricing_engine.sql` layer, which performs large-scale data cleansing and statistical aggregation.
 
----
+### 1.1 Data Cleansing & Integrity (CTE: mapping_dedup)
+The `itemmaster` table contains duplicate records for single SKUs. To ensure revenue accuracy, the engine uses a Windows Function to isolate the most recent metadata:
+- **Partitioning**: Grouped by `Product Code`.
+- **Ranking**: Ordered by `updatedAt` in descending order.
+- **Filtering**: Only row rank #1 is used for Cost Price, MRP, and Lifecycle Tags.
 
-## 2. SQL Engine: In-Database Feature Engineering
-
-The SQL layer (`enhanced_pricing_engine.sql`) serves as the core data processing and statistical foundation. It performs complex transformations and "cold-start" calculations directly within the data warehouse.
-
-### 2.1 Lifecycle-Aware Demand Decay
-The engine uses a time-decaying weight for historical sales observations to ensure'recency' is respected. The decay constant ($\lambda$) is dynamically assigned based on the SKU's lifecycle tag:
-$$Weight = \exp(-\lambda \times \Delta t)$$
-- **NEW**: $\lambda = 0.010$ (100-day window) - Adapts rapidly to launch trends.
-- **MUDA**: $\lambda = 0.002$ (500-day window) - Accumulates deeper history for slow-movers.
-- **CORE**: $\lambda = 0.004$ (250-day window) - Stable, balanced training context.
-
-### 2.2 Split-Elasticity Modeling
-Unlike standard simulations, the SQL engine calculates separate Log-Linear regressions for **BAU** and **Event** periods per SKU-channel.
-- **Formula**: $LN(DRR) = \beta_0 + \beta_1 LN(Price)$
-- **Constraint**: Slopes are clamped to a maximum of -2.5 (aggressive elasticity) to prevent outlier predictions.
-
-### 2.3 Bayesian Cross-SKU Transfer
-To handle SKUs with sparse data (cold-starts), the engine implements a Bayesian anchor where SKU-level signal is blended with the category-level norm:
-$$Elasticity_{Final} = \frac{(n \times Elasticity_{SKU}) + (C \times Elasticity_{Category})}{n + C}$$
-Where $n$ is the SKU's observation count and $C=5$ is the regularization anchor. This ensures every product has a data-backed demand curve from day one.
+### 1.2 Channel Normalization (CTE: base_sales)
+Pricing behavior differs across channels. The engine applies a **Reverse Commission Offset** for AJIO to normalize its "Selling Price" against Myntra/Flipkart benchmarks:
+- **AJIO Logic**: `Selling Price + 65` (Normalizes for platform-specific fixed costs).
+- **Exclusions**: Orders with status `CANCELLED` or `UNFULFILLABLE` are removed to prevent phantom demand inflation.
+- **Time Window**: Analysis starts from June 2025 to prioritize the most relevant market trends and consumer behaviors.
 
 ---
 
-## 3. Python ML Engine: XGBoost Forecasting
+## 2. Mathematical Logic Engines
 
-The Python layer (`pricing_ml_engine.py`) implements a non-linear gradient boosted tree model to capture complex feature interactions (e.g., how "Weekend" interacts with "Discount Depth").
+The engine uses three specific mathematical frameworks to handle different business challenges.
 
-### 3.1 Advanced Feature Engineering (22 Features)
-The ML model consumes high-dimensional vectors for every SKU-channel-day:
-- **Price Psychology**: Price-to-MRP ratio, price-to-average ratio (per SKU), and ₹50 price buckets.
-- **Temporal Waves**: Day-of-week, day-of-month, month, and "Payday Effect" flags (month-start/end).
-- **Demand Momentum**: 7-day, 14-day, and 30-day rolling average velocities.
-- **Contextual Signals**: Event flags, lifecycle tags (encoded), and channel labels.
+### 2.1 Lifecycle-Aware Recency Weighting
+Observed sales are not equal. A sale from yesterday is a stronger signal than a sale from 6 months ago. We apply an **Exponential Decay Function**:
+- **Formula**: `Weight = exp(- Decay_Rate * Days_Since_Sale)`
+- **MUDA (Slow-Movers)**: Rate = 0.002 (Deep memory, retains signals for ~500 days).
+- **NEW (Launches)**: Rate = 0.010 (Aggressive learning, focuses on the last 100 days).
+- **CORE (Staples)**: Rate = 0.004 (Balanced stability).
 
-### 3.2 Model Architecture & Training
-- **Model**: XGBoost Regressor (`hist` tree method for high-speed computation).
-- **Optimization**: Squared Error loss with `learning_rate=0.08` and `max_depth=6`.
-- **Validation**: Uses **TimeSeriesSplit** (3 folds) to ensure the model is validated on future data relative to its training set, preventing temporal leakage.
+### 2.2 Cold-Start Problem: Bayesian Elasticity Transfer
+Traditional simulations fail when a SKU has limited price changes. We solve this using **Category-Level Pooling**:
+- **Mechanism**: If a SKU has < 3 price points, its elasticity is calculated as a blend of its own history and the average elasticity of its "Peer Group" (the Lifecycle Tag).
+- **Blending Formula**: `Final_Elasticity = ( (SKU_Points * SKU_Slope) + (5 * Category_Slope) ) / (SKU_Points + 5)`
+- **Anchor**: The constant '5' acts as a regularization anchor, preventing the model from overreacting to small SKU-level data samples.
 
-### 3.3 Simulation Grid & Predictive Inference
-The model doesn't just predict once; it simulates a "Price Ladder":
-1. Generate 20 price points (±15% of last price) including psychological anchors (e.g., ₹X99).
-2. Parallel inference for all 20 points for both BAU and Event scenarios.
-3. Conversion of ML outputs into Daily Run Rate (DRR) and monthly profit projections.
-
----
-
-## 4. Optimization & Scoring Framework
-
-Both engines feed into a dynamic multi-objective scoring system that selects the "Optimal" price based on business phase.
-
-### 4.1 Inventory Urgency Sigmoid
-Urgency is not linear. We use a Sigmoid function relative to tag-specific Days-on-Hand (DOH) targets:
-$$Urgency = \frac{1}{1 + \exp(-(Current\_DOH - Target\_DOH) / 15)}$$
-
-### 4.2 Dynamic Strategic Weights
-The recommendation logic shifts its priorities based on the Urgency score:
-
-| Strategy | Trigger | Profit Weight | Velocity (DRR) Weight |
-|:---|:---:|:---:|:---:|
-| **Margin Mode** | Urgency < 0.3 | **0.55** | 0.15 |
-| **Balanced Mode** | Urgency 0.3-0.7 | 0.45 | 0.30 |
-| **Velocity Mode** | Urgency > 0.7 | 0.20 | **0.45** |
+### 2.3 Inventory Urgency (The Sigmoid System)
+Strategy shifts based on stock health. We calculate an **Urgency Score (0 to 1)** using a Sigmoid function relative to a Target Days-on-Hand (DOH):
+- **Formula**: `Urgency = 1 / (1 + exp( - (Current_DOH - Target_DOH) / 15 ))`
+- **Result**: Once Current DOH exceeds the Target by 30+ days, the Urgency score crosses 0.8, triggering "Velocity Mode" in the recommendation engine.
 
 ---
 
-## 5. Implementation Roadmap
+## 3. XGBoost Machine Learning Model
 
-- **Production Sync**: The pipeline runs in 7 modular steps, from SQL extraction to final CSV/Dashboard export.
-- **Data Security**: Credential isolation via Streamlit Secrets and `.gitignore` policies.
-- **Future State**: Phase 3 will integrate **RTO (Return) Penalties** directly into the Profit Score, penalizing price points that drive high return rates.
+The Python layer (`pricing_ml_engine.py`) implements a Gradient Boosted Tree model that captures non-linear relationships that traditional SQL cannot.
+
+### 3.1 Advanced Feature Engineering (22 Vectors)
+Every simulation point is evaluated against 22 distinct signals:
+- **Price Psychology**: Absolute Price, Price-to-MRP ratio, Discount Depth, and Price-Step buckets.
+- **Market Velocity**: 7-day, 14-day, and 30-day rolling average demand.
+- **Seasonal Waves**: Day-of-week, Month, weekends, and Payday flags (Month-Start/End spikes).
+- **SKU Context**: Event flag (BAU vs Sale), Lifecycle Tag (encoded), and Channel ID.
+
+### 3.2 Model Specifications
+- **Architecture**: XGBoost Regressor using the `hist` tree method for high-speed processing on large grids.
+- **Hyperparameters**: 
+    - `max_depth: 6` (Captures deep interactions without overfitting).
+    - `learning_rate: 0.08` (Ensures stable convergence).
+    - `n_estimators: 300` (Optimized for <40s training).
+- **Validation**: **TimeSeriesSplit** (3-Fold Cross-Validation) ensures the model is tested by following chronological boundaries, preventing data leakage from "future" sales into "past" training.
 
 ---
-**Prepared by**: AI Data Science Lead  
-**Last Updated**: February 19, 2026  
-**Files**: `pricing_ml_engine.py` | `enhanced_pricing_engine.sql`
+
+## 4. Simulation & Recommendation Logic
+
+The engine does not just "predict" a single price; it simulates a comprehensive "Price Ladder" for every active SKU-Channel.
+
+### 4.1 Grid Simulation Strategy
+1. **Search Space**: The engine builds a 20-point price grid per SKU between the permitted BAU and Event guardrails.
+2. **Psychological Anchors**: Specific points like ₹X49, ₹X99, and ₹X95 are added to the grid to test consumer conversion at "Charm Prices."
+3. **Inference**: The XGBoost model performs batch inference on the entire 20-point grid, returning the predicted Daily Run Rate (DRR) for every scenario.
+
+### 4.2 Dynamic Strategic Scoring
+Final recommendations are chosen based on a **Composite Score** that adapts to inventory states:
+
+| Mode | Urgency | Objective | Primary Weight |
+|:---|:---:|:---|:---:|
+| **Margin Mode** | < 0.3 | Protect Profitability | Profit: 0.55 |
+| **Balanced Mode**| 0.3-0.7 | Growth & Profit | Profit: 0.45, Velocity: 0.30 |
+| **Velocity Mode**| > 0.7 | Clearance / Liquidation | Velocity (DRR): 0.45 |
+
+---
+
+## 5. Dashboard Performance & Flow
+
+### 5.1 Orchestration Pipeline
+The dashboard initializes via a 7-step decoupled pipeline:
+1. **Extraction**: Live SQL ingestion of sales/inventory.
+2. **Engineering**: Vectorization of ML features.
+3. **Training**: Real-time XGBoost demand learning.
+4. **Grid Scaling**: Expansion of active SKUs into 20-point grids.
+5. **Inference**: AI demand prediction.
+6. **Ranking**: Sorting for MAX_PROFIT and OPTIMAL picks.
+7. **Serving**: Rendering via the interactive Streamlit interface.
+
+### 5.2 Efficiency & Persistence
+- **Global Caching**: Results are stored in an encrypted 1-hour RAM cache (`st.cache_data`), allowing for instant search performance for all users.
+- **Deep Linking**: The dashboard state (selected SKU/Channel) is synchronized with URL query parameters, enabling direct sharing of SKU-specific insights between team members.
+
+---
+**Tech Stack**: Python 3.13 | XGBoost | PostgreSQL (AWS RDS) | Streamlit v1.35
+**Authors**: Pepe AI Data Science & Pricing Ops
+**Version**: 4.0 Stable
