@@ -258,7 +258,7 @@ if st.session_state.sel_sku and st.session_state.sel_channel:
     optimal_price = int(optimal_rec["price"]) if optimal_rec is not None else "—"
 
     # ── Header ───────────────────────────────────────
-    st.markdown(f"### {sel_sku} · {sel_sku_channel}")
+    st.markdown(f"### {st.session_state.sel_sku} · {st.session_state.sel_channel}")
     st.caption(f"Tag: **{tag}** · Inventory: **{inventory}** units · Cost: **₹{cost_price:,.0f}**")
 
     # ── KPIs ─────────────────────────────────────────
