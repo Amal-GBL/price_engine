@@ -85,9 +85,10 @@ div[data-baseweb="select"]:hover, div[data-baseweb="input"]:hover {
 
 # ── Load Data (Global 1-hr Cache) ────────────────────
 @st.cache_data(ttl=3600, show_spinner=False)
-def get_cached_analysis(progress_callback=None):
-    # This runs the actual pipeline and caches the result for 1 hour
-    preds, recs = run_full_pipeline(fast_mode=True, progress_callback=progress_callback)
+def get_cached_analysis(_progress_callback=None):
+    # The underscore prefix tells Streamlit: "Don't try to hash this parameter"
+    # This fixed the UnhashableParamError while keeping the progress tracker
+    preds, recs = run_full_pipeline(fast_mode=True, progress_callback=_progress_callback)
     return preds, recs
 
 # Premium Loading Experience
@@ -98,7 +99,7 @@ if "engine_ready" not in st.session_state:
             status.write(msg)
         
         # This will either fetch from cache (instant) or run with log updates (step-by-step)
-        preds, recs = get_cached_analysis(progress_callback=update_status)
+        preds, recs = get_cached_analysis(_progress_callback=update_status)
         status.update(label="✅ Engine Ready", state="complete", expanded=False)
     
     st.session_state.engine_ready = True
