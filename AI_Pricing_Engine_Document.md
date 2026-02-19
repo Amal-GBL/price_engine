@@ -1,5 +1,5 @@
 # AI-Driven Dynamic Pricing Strategy & Operational Engine
-## Technical Specification & Executive Report — v2.5
+## Technical Specification & Executive Report — v2.7
 **February 2026**
 
 ---
@@ -32,9 +32,9 @@ By analyzing **2.27 million transactions** across Myntra, Flipkart, and AJIO, th
 
 ## 2. Technical Architecture & Innovation
 
-The V2.5 engine utilizes a hybrid approach, combining high-speed SQL aggregation with a "Turbo-Mode" XGBoost Machine Learning pipeline.
+The V2.7 engine utilizes a hybrid approach, combining high-speed SQL aggregation with a "Turbo-Mode" XGBoost Machine Learning pipeline.
 
-### 2.1 The "Turbo-Mode" ML Pipeline (V2.5)
+### 2.1 The "Turbo-Mode" ML Pipeline (V2.7)
 To facilitate real-time exploration on the stakeholder dashboard, we implemented a specialized high-speed training mode:
 - **Compressed Data Window**: Focuses on the most relevant market signals from **June 2025 – Present**.
 - **Pruned Model Complexity**: Optimized XGBoost architecture using 200 estimators for <60s retraining without sacrificing directionality.
@@ -52,10 +52,10 @@ To facilitate real-time exploration on the stakeholder dashboard, we implemented
 
 The stakeholder interface has been upgraded to a premium production-grade platform.
 
-### 3.1 Advanced Capabilities (V2.5)
+### 3.1 Advanced Capabilities (V2.7)
 - **Zero-Latency Interaction**: Powered by a 1-hour global server-side cache. Once initialized, all SKU searches are **instant**.
-- **Persistent Deep-Linking**: URL query parameters (`?sku=...&channel=...`) are synchronized with the UI. Stakeholders can share exact SKU views via a simple link.
-- **Pulse Status Display**: A "7-Step Pulse" loader provides a transparent view of the AI engine's health and initialization steps.
+- **State Persistence (URL-Sync)**: Dashboard selections (SKU & Channel) are now synchronized with the URL and session state. Refreshing the browser or sharing the link preserves the exact view.
+- **Premium Initialization UI**: A sleek, step-by-step loading experience providing transparency into the AI's 7-step initialization process.
 - **High-Fidelity Aesthetics**: Custom CSS with fade-in animations, distinctive input boxes, and interactive hover effects for a premium user experience.
 
 ### 3.2 Key Views
@@ -113,6 +113,6 @@ streamlit run dashboard.py
 ```
 
 ---
-*Document Version: 2.5*  
+*Document Version: 2.7*  
 *Last Updated: February 19, 2026*  
 *Contact: AI Data Science Team | Pepe Pricing Operations*
