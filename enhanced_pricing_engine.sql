@@ -11,7 +11,79 @@
 --   7. Guardrail enforcement from pepe_pricing_guardrails
 -- =====================================================================
 
+-- =====================================================================
+-- 0B. FLIPKART UPLIFT (FEES) SLABS
+-- =====================================================================
 WITH
+-- =====================================================================
+-- 0B. FLIPKART UPLIFT (FEES) SLABS
+-- =====================================================================
+fk_uplift AS (
+    SELECT *
+    FROM (
+        VALUES
+        ('BOXER',       0,   150,  58),
+        ('BOXER',     151,   300,  90),
+        ('BOXER',     301,   500,  92),
+        ('BOXER',     501,  1000, 135),
+        ('BOXER',    1001, 999999,138),
+
+        ('BRIEF',       0,   150,  33),
+        ('BRIEF',     151,   300,  33),
+        ('BRIEF',     301,   500,   0),
+        ('BRIEF',     501,  1000, 131),
+        ('BRIEF',    1001, 999999,139),
+
+        ('TRACKSUIT',   0,   150,  93),
+        ('TRACKSUIT', 151,   300,  93),
+        ('TRACKSUIT', 301,   500, 103),
+        ('TRACKSUIT', 501,  1000, 129),
+        ('TRACKSUIT',1001, 999999,155),
+
+        ('T SHIRT',     0,   150,  58),
+        ('T SHIRT',   151,   300,  78),
+        ('T SHIRT',   301,   500,  80),
+        ('T SHIRT',   501,  1000, 157),
+        ('T SHIRT',  1001, 999999,192),
+
+        ('SHORTS',      0,   150,  62),
+        ('SHORTS',    151,   300,  94),
+        ('SHORTS',    301,   500,  93),
+        ('SHORTS',    501,  1000,  96),
+        ('SHORTS',   1001, 999999,148),
+
+        ('PYJAMA',      0,   150,  32),
+        ('PYJAMA',    151,   300,  84),
+        ('PYJAMA',    301,   500,  90),
+        ('PYJAMA',    501,  1000, 108),
+        ('PYJAMA',   1001, 999999,145),
+
+        ('SOCKS',       0,   150,  58),
+        ('SOCKS',     151,   300,  90),
+        ('SOCKS',     301,   500,  84),
+        ('SOCKS',     501,  1000, 101),
+        ('SOCKS',    1001, 999999,159),
+
+        ('THERMALS',    0,   150, 118),
+        ('THERMALS',  151,   300, 118),
+        ('THERMALS',  301,   500, 118),
+        ('THERMALS',  501,  1000, 154),
+        ('THERMALS', 1001, 999999,169),
+
+        ('TRACK PANT',  0,   150,  97),
+        ('TRACK PANT',151,   300,  77),
+        ('TRACK PANT',301,   500,  80),
+        ('TRACK PANT',501,  1000, 147),
+        ('TRACK PANT',1001, 999999,248),
+
+        ('VEST',        0,   150,  27),
+        ('VEST',      151,   300,  27),
+        ('VEST',      301,   500,   0),
+        ('VEST',      501,  1000,  82),
+        ('VEST',     1001, 999999, 75)
+    ) AS t(category, min_price, max_price, uplift)
+),
+
 -- =====================================================
 -- 0. ITEMMASTER DEDUP
 -- =====================================================
@@ -23,6 +95,7 @@ mapping_dedup AS (
             "Cost Price",
             "Tags",
             "MRP",
+            "Category Name" AS category,
             ROW_NUMBER() OVER (
                 PARTITION BY "Product Code"
                 ORDER BY "updatedAt" DESC NULLS LAST
@@ -54,9 +127,9 @@ base_sales AS (
             END
         )::INT AS price,
 
-        md."Tags"       AS tags,
+        md."Tags"        AS tags,
+        md."category"    AS category,
         md."Cost Price"  AS cost_price
-
     FROM "DataWarehouse".pepe_in_unicommerce_saleorders s
     LEFT JOIN mapping_dedup md
         ON s."Item SKU Code" = md."Product Code"
@@ -168,6 +241,7 @@ price_learning AS (
         sku,
         channel,
         tags,
+        category,
         price_point,
         event_type,
         SUM(weight)                                      AS weighted_qty,
@@ -178,6 +252,7 @@ price_learning AS (
             sku,
             channel,
             tags,
+            category,
             price_point,
             order_date,
             event_type,
@@ -193,7 +268,7 @@ price_learning AS (
             ) AS weight
         FROM bucketed_sales
     ) x
-    GROUP BY sku, channel, tags, price_point, event_type
+    GROUP BY sku, channel, tags, category, price_point, event_type
     HAVING COUNT(DISTINCT order_date) >= 3
 ),
 
@@ -393,6 +468,7 @@ base_demand AS (
             pl.sku,
             pl.channel,
             pl.tags,
+            pl.category,
             pl.event_type,
             pl.price_point          AS base_price,
             pl.drr                  AS base_drr,
@@ -490,8 +566,16 @@ historical AS (
         pl.price_point,
         pl.drr,
         i.inventory / NULLIF(pl.drr, 0)        AS doh,
-        GREATEST(pl.price_point - md."Cost Price", 0)
-            * pl.drr * 30                       AS monthly_profit,
+        -- Monthly Profit Calculation with Channel Fees
+        GREATEST(
+            (CASE
+                WHEN pl.channel = 'FLIPKART' THEN
+                    (pl.price_point * 0.82) - COALESCE(fu.uplift, 145) -- 18% comm + slab fee
+                WHEN pl.channel = 'MYNTRA'   THEN (pl.price_point * 0.82) - 35
+                ELSE pl.price_point - md."Cost Price"
+             END) - md."Cost Price",
+            0
+        ) * pl.drr * 30                       AS monthly_profit,
         lp.last_price,
         NULL::NUMERIC                            AS urgency_score,
         NULL::TEXT                               AS elasticity_source,
@@ -503,6 +587,9 @@ historical AS (
     JOIN inventory i        ON pl.sku = i.sku
     JOIN mapping_dedup md   ON pl.sku = md."Product Code"
     JOIN last_txn_price lp  ON pl.sku = lp.sku AND pl.channel = lp.channel
+    LEFT JOIN fk_uplift fu  ON pl.channel = 'FLIPKART'
+                           AND UPPER(pl.category) = fu.category
+                           AND pl.price_point BETWEEN fu.min_price AND fu.max_price
 ),
 
 -- =====================================================
@@ -514,6 +601,7 @@ simulated_raw AS (
         pl.sku,
         pl.channel,
         pl.tags,
+        pl.category,
         pl.event_type,
         pl.sim_price_point AS price_point,
         pl.elasticity,
@@ -575,24 +663,36 @@ simulated_raw AS (
 
 simulated_enriched AS (
     SELECT
-        sku,
-        channel,
-        tags,
-        event_type,
-        price_point,
-        elasticity,
-        elasticity_source,
-        urgency_score,
-        drr,
-        inventory / NULLIF(drr, 0)                        AS doh,
-        GREATEST(price_point - cost_price, 0) * drr * 30  AS monthly_profit,
-        last_price,
-        current_doh,
-        target_doh,
-        dow_mult,
-        month_mult,
+        sr.sku,
+        sr.channel,
+        sr.tags,
+        sr.event_type,
+        sr.price_point,
+        sr.elasticity,
+        sr.elasticity_source,
+        sr.urgency_score,
+        sr.drr,
+        sr.inventory / NULLIF(sr.drr, 0)                        AS doh,
+        -- Monthly Profit with Slab-aware Fees
+        GREATEST(
+            (CASE
+                WHEN sr.channel = 'FLIPKART' THEN
+                    (sr.price_point * 0.82) - COALESCE(fu.uplift, 145)
+                WHEN sr.channel = 'MYNTRA'   THEN (sr.price_point * 0.82) - 35
+                ELSE sr.price_point - sr.cost_price
+             END) - sr.cost_price,
+            0
+        ) * sr.drr * 30                                         AS monthly_profit,
+        sr.last_price,
+        sr.current_doh,
+        sr.target_doh,
+        sr.dow_mult,
+        sr.month_mult,
         'SIMULATED' AS record_type
-    FROM simulated_raw
+    FROM simulated_raw sr
+    LEFT JOIN fk_uplift fu  ON sr.channel = 'FLIPKART'
+                           AND UPPER(sr.category) = fu.category
+                           AND sr.price_point BETWEEN fu.min_price AND fu.max_price
 ),
 
 simulated_with_max AS (

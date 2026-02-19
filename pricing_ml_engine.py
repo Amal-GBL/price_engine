@@ -78,6 +78,20 @@ TAG_CONFIG = {
 }
 DEFAULT_TAG_CONFIG = {"decay": 0.005, "target_doh": 60}
 
+# Flipkart Category-wise Uplift (Fixed + Shipping Fees)
+FLIPKART_UPLIFT = {
+    'BOXER':      [(0, 150, 58), (151, 300, 90), (301, 500, 92), (501, 1000, 135), (1001, 999999, 138)],
+    'BRIEF':      [(0, 150, 33), (151, 300, 33), (301, 500, 0), (501, 1000, 131), (1001, 999999, 139)],
+    'TRACKSUIT':  [(0, 150, 93), (151, 300, 93), (301, 500, 103), (501, 1000, 129), (1001, 999999, 155)],
+    'T SHIRT':    [(0, 150, 58), (151, 300, 78), (301, 500, 80), (501, 1000, 157), (1001, 999999, 192)],
+    'SHORTS':     [(0, 150, 62), (151, 300, 94), (301, 500, 93), (501, 1000, 96), (1001, 999999, 148)],
+    'PYJAMA':     [(0, 150, 32), (151, 300, 84), (301, 500, 90), (501, 1000, 108), (1001, 999999, 145)],
+    'SOCKS':      [(0, 150, 58), (151, 300, 90), (301, 500, 84), (501, 1000, 101), (1001, 999999, 159)],
+    'THERMALS':   [(0, 150, 118), (151, 300, 118), (301, 500, 118), (501, 1000, 154), (1001, 999999, 169)],
+    'TRACK PANT': [(0, 150, 97), (151, 300, 77), (301, 500, 80), (501, 1000, 147), (1001, 999999, 248)],
+    'VEST':       [(0, 150, 27), (151, 300, 27), (301, 500, 0), (501, 1000, 82), (1001, 999999, 75)],
+}
+
 
 # ─────────────────────────────────────────────────────
 # DATABASE
@@ -112,6 +126,7 @@ def extract_training_data() -> pd.DataFrame:
                 "MRP",
                 "Size",
                 "Color",
+                "Category Name" AS category,
                 ROW_NUMBER() OVER (
                     PARTITION BY "Product Code"
                     ORDER BY "updatedAt" DESC NULLS LAST
@@ -156,6 +171,7 @@ def extract_training_data() -> pd.DataFrame:
             md."MRP"         AS mrp,
             md."Size"        AS size,
             md."Color"       AS color,
+            md."category"    AS category,
 
             COUNT(*) AS units_sold
 
@@ -172,7 +188,7 @@ def extract_training_data() -> pd.DataFrame:
              OR s."Channel Name" ILIKE '%%FLIPKART%%'
              OR s."Channel Name" ILIKE '%%AJIO%%'
           )
-        GROUP BY 1, 2, 3, 4, 5, 6, 7, 8, 9
+        GROUP BY 1, 2, 3, 4, 5, 6, 7, 8, 9, 10
     )
 
     SELECT
@@ -305,10 +321,6 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
     df["is_weekend"] = df["dow"].isin([0, 6]).astype(int)
     df["is_month_start"] = (df["day_of_month"] <= 5).astype(int)
     df["is_month_end"] = (df["day_of_month"] >= 25).astype(int)
-    
-    # --- Flipkart Slab awareness ---
-    df["is_sub_500"] = (df["price"] < 500).astype(int)
-    df["is_sub_1000"] = (df["price"] < 1000).astype(int)
 
     # --- Categorical encoding ---
     df["is_event"] = (df["event_flag"] == "Event").astype(int)
@@ -357,7 +369,6 @@ FEATURE_COLS = [
     "price_bucket",
     "dow", "month", "day_of_month", "week_of_year",
     "is_weekend", "is_month_start", "is_month_end",
-    "is_sub_500", "is_sub_1000",
     "is_event", "tag_encoded", "channel_encoded",
     "days_ago", "recency_weight",
     "rolling_units_7d", "rolling_units_14d", "rolling_units_30d",
@@ -453,6 +464,7 @@ def build_simulation_grid(
         df.groupby(["sku", "channel"])
         .agg(
             tags=("tags", "first"),
+            category=("category", "first"),
             cost_price=("cost_price", "first"),
             mrp=("mrp", "first"),
             avg_price=("price", "mean"),
@@ -513,6 +525,7 @@ def build_simulation_grid(
                 "sku": s["sku"],
                 "channel": s["channel"],
                 "tags": s["tags"],
+                "category": s["category"],
                 "cost_price": cost_val,
                 "mrp": mrp_val,
                 "last_price": last_p,
@@ -576,22 +589,31 @@ def simulate_with_model(model, grid_df: pd.DataFrame) -> pd.DataFrame:
     def get_net_realization(row):
         p = row["price"]
         chan = row["channel"]
+        cat = str(row.get("category", "")).upper()
         
         # Default Marketplace Fee (Commission % + Collection % approx 18%)
         comm_pct = 0.18
         
-        # Fixed Fees & Packing (Varies by price slab)
-        fixed_fee = 0
+        # Fixed Fees & Logistics (Uplift)
+        uplift = 0
         if chan == "FLIPKART":
-            if p < 500: fixed_fee = 15
-            elif p < 1000: fixed_fee = 40
-            else: fixed_fee = 65
+            # Lookup category-specific slabs
+            slabs = FLIPKART_UPLIFT.get(cat, [])
+            for s_min, s_max, s_uplift in slabs:
+                if s_min <= p <= s_max:
+                    uplift = s_uplift
+                    break
+            # Fallback if category not found or price out of range
+            if not slabs or uplift == 0:
+                if p < 500: uplift = 65
+                elif p < 1000: uplift = 95
+                else: uplift = 145
         elif chan == "MYNTRA":
-            fixed_fee = 35 # Avg fixed + logistic overhead
+            uplift = 35 # Avg fixed + logistic overhead
         elif chan == "AJIO":
-            fixed_fee = 0 # Handled by the +65 revenue offset already
+            uplift = 0 # Handled by the +65 revenue offset already
             
-        return p * (1 - comm_pct) - fixed_fee
+        return p * (1 - comm_pct) - uplift
 
     grid_df["net_realization"] = grid_df.apply(get_net_realization, axis=1)
     grid_df["ml_monthly_profit"] = (

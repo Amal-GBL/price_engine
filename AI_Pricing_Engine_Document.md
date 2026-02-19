@@ -19,9 +19,10 @@ Pricing behavior differs across channels. The engine applies a **Reverse Commiss
 - **AJIO Logic**: `Selling Price + 65` (Normalizes for platform-specific fixed costs).
 
 ### 1.3 Marketplace Slab Integration (V4.1)
-The profit calculation in the Python layer now uses **Net Realization** instead of Gross Revenue. It explicitly models the marketplace commission and "Fixed Fee" slabs that determine true bottom-line profitability:
-- **Flipkart Slabs**: The model accounts for the fixed fee jumps at **₹500** and **₹1000**. If a price increase pushes a SKU into a higher slab (e.g., ₹499 to ₹505), the engine evaluates if the volume drop and fee increase offset the potential margin gain.
-- **ML Sensitivity**: Features `is_sub_500` and `is_sub_1000` are fed into the XGBoost model to help it learn nonlinear consumer abandonment points at these operational thresholds.
+The profit calculation now uses **Category-Specific Net Realization**. It explicitly models the marketplace commission (18%) and "Fixed Fee + Shipping" (Uplift) based on the product category and price range:
+- **Flipkart Category Slabs**: The model utilizes a granular lookup table (Uplift CTE) for categories like 'T SHIRT', 'BOXER', 'BRIEF', etc., across 5 price buckets (0-150, 151-300, 301-500, 501-1000, 1001+).
+- **Optimization Strategy**: By modeling these fee "cliffs," the engine identifies cases where a price increase actually reduces net profit (e.g., if a price shift from ₹499 to ₹505 triggers a ₹40 jump in fees).
+- **Default Fallbacks**: SKUs without a matched category default to a conservative 18% commission + ₹65/₹95/₹145 fixed fee structure to protect operational margins.
 
 ---
 
