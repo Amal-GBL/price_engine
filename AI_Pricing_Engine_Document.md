@@ -1,6 +1,7 @@
 # Technical Architecture: Pepe AI Pricing Engine (V5.0)
 ## Unified Specification: Phase 1 Foundations to ML-Driven Production Logic
 **Author**: Amal Bobby | AI Data Science Division  
+**Live Access**: [Pepe Pricing Dashboard](https://pepe-pricing.streamlit.app)  
 **Last Updated**: February 19, 2026
 
 ---
@@ -13,6 +14,15 @@ The system is designed to be:
 - **Slab-Aware**: Explicitly modeling platform-specific fee "cliffs" to protect margins.
 - **Deterministic & Explainable**: Every "AI" decision is traceable to specific weight parameters.
 - **Persistent**: Deep-linkable dashboard state for seamless stakeholder collaboration.
+
+---
+
+## 1.5 What is "AI" in this Project?
+The "AI" in the Pepe Pricing Engine is not just a statistical script; it is a multi-layered intelligence system that automates semi-conscious business decisions:
+- **The Predictive Brain (XGBoost)**: A Gradient Boosted Tree model that evaluates **22 non-linear signals** (Day-of-Week, Payday spikes, platform specific fee cliffs) to predict precise customer abandonment points.
+- **The Knowledge Transfer (Bayesian Prior)**: Solves the "Cold Start" problem for new SKUs by transferring demand intelligence from similar product categories (e.g., teaching a new 'V-Neck' SKU using 'T-Shirt' history).
+- **The Priority Brain (Heuristic Optimizer)**: An autonomous goal-setting agent that calculates an **Inventory Urgency Score** and dynamically shifts its own weighting—prioritizing **Margin** when stock is low and **Velocity** (Clearance) when stock is high.
+- **Continuous Learning**: The engine re-trains itself every hour, capturing immediate market "momentum" (e.g., sudden viral trends or competitor stock-outs) and adjusting recommendations in real-time.
 
 ---
 
