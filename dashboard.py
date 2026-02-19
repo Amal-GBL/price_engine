@@ -58,22 +58,67 @@ section[data-testid="stSidebar"] [data-testid="stWidgetLabel"] p {
 section[data-testid="stSidebar"] h2 {
     color: #fff !important;
     font-size: 1.25rem !important;
-    margin-bottom: 0px !important;
+    margin-bottom: 10px !important;
+}
+
+/* Distinctive Sidebar Input Boxes */
+div[data-baseweb="select"], div[data-baseweb="input"] {
+    background-color: #1a1a2e !important;
+    border: 1px solid rgba(139,92,246,0.3) !important;
+    border-radius: 8px !important;
+}
+div[data-baseweb="select"]:hover, div[data-baseweb="input"]:hover {
+    border-color: #8b5cf6 !important;
+}
+
+/* Fade-in Animation */
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+.stApp {
+    animation: fadeIn 0.8s ease-out;
 }
 </style>
 """, unsafe_allow_html=True)
 
 
 # ── Load Data (Global 1-hr Cache) ────────────────────
-@st.cache_data(ttl=3600, show_spinner="🔄 AI Pricing Engine is training models... please wait.")
-def get_cached_analysis():
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_cached_analysis(progress_callback=None):
     # This runs the actual pipeline and caches the result for 1 hour
-    # We use fast_mode to keep it under 2 mins
-    preds, recs = run_full_pipeline(fast_mode=True)
+    preds, recs = run_full_pipeline(fast_mode=True, progress_callback=progress_callback)
     return preds, recs
 
-# This will only execute the pipeline on cache miss
-preds, recs = get_cached_analysis()
+# Premium Loading Experience
+if "engine_ready" not in st.session_state:
+    status_box = st.empty()
+    with status_box.status("🚀 Initializing AI Pricing Engine...", expanded=True) as status:
+        def update_status(msg):
+            status.write(msg)
+        
+        # This will either fetch from cache (instant) or run with log updates (step-by-step)
+        preds, recs = get_cached_analysis(progress_callback=update_status)
+        status.update(label="✅ Engine Ready", state="complete", expanded=False)
+    
+    st.session_state.engine_ready = True
+    status_box.empty() # Clean up the status box
+else:
+    preds, recs = get_cached_analysis()
+
+
+# ── State Persistence (Query Params) ────────────────
+# Sync URL query parameters with session state
+if "sel_sku" not in st.session_state:
+    st.session_state.sel_sku = st.query_params.get("sku", None)
+if "sel_channel" not in st.session_state:
+    st.session_state.sel_channel = st.query_params.get("channel", None)
+
+def update_params():
+    if st.session_state.sel_sku:
+        st.query_params["sku"] = st.session_state.sel_sku
+    if st.session_state.sel_channel:
+        st.query_params["channel"] = st.session_state.sel_channel
 
 
 # ── Build lookup tables ──────────────────────────────
@@ -144,27 +189,48 @@ with st.sidebar:
     filtered = preds[mask]
 
     # SKU selector
-    sku_list = sorted(filtered["sku"].unique())
-    sel_sku = st.selectbox("SKU", sku_list, index=0 if sku_list else None)
+    sku_options = sorted(filtered["sku"].unique())
+    
+    # Handle initial index from session state
+    initial_sku_idx = 0
+    if st.session_state.sel_sku in sku_options:
+        initial_sku_idx = sku_options.index(st.session_state.sel_sku)
+
+    st.selectbox(
+        "SKU", sku_options, 
+        index=initial_sku_idx if sku_options else None,
+        key="sel_sku",
+        on_change=update_params
+    )
 
     # Channel for this SKU
-    if sel_sku:
-        sku_channels = sorted(filtered[filtered["sku"] == sel_sku]["channel"].unique())
-        sel_sku_channel = st.selectbox("Channel for SKU", sku_channels, index=0 if sku_channels else None)
+    if st.session_state.sel_sku:
+        sku_channels = sorted(filtered[filtered["sku"] == st.session_state.sel_sku]["channel"].unique())
+        
+        initial_chan_idx = 0
+        if st.session_state.sel_channel in sku_channels:
+            initial_chan_idx = sku_channels.index(st.session_state.sel_channel)
+
+        st.selectbox(
+            "Channel for SKU", sku_channels, 
+            index=initial_chan_idx if sku_channels else None,
+            key="sel_channel",
+            on_change=update_params
+        )
     else:
-        sel_sku_channel = None
+        st.session_state.sel_channel = None
 
     st.divider()
-    st.caption("v2.0 · Data: Jan 2025 – Feb 2026")
+    st.caption("v2.2 · Dynamic AI Engine")
 
 
 # ── Get SKU data ─────────────────────────────────────
-if sel_sku and sel_sku_channel:
+if st.session_state.sel_sku and st.session_state.sel_channel:
     sku_data = filtered[
-        (filtered["sku"] == sel_sku) & (filtered["channel"] == sel_sku_channel)
+        (filtered["sku"] == st.session_state.sel_sku) & (filtered["channel"] == st.session_state.sel_channel)
     ].sort_values("price")
 
-    key = (sel_sku, sel_sku_channel)
+    key = (st.session_state.sel_sku, st.session_state.sel_channel)
     sku_recs = rec_lookup.get(key, {})
 
     last_price = sku_data["last_price"].iloc[0] if len(sku_data) > 0 else 0
