@@ -85,25 +85,27 @@ div[data-baseweb="select"]:hover, div[data-baseweb="input"]:hover {
 
 # ── Load Data (Global 1-hr Cache) ────────────────────
 @st.cache_data(ttl=3600, show_spinner=False)
-def get_cached_analysis(_progress_callback=None):
-    # The underscore prefix tells Streamlit: "Don't try to hash this parameter"
-    # This fixed the UnhashableParamError while keeping the progress tracker
-    preds, recs = run_full_pipeline(fast_mode=True, progress_callback=_progress_callback)
+def get_cached_analysis():
+    # We call the pipeline in fast_mode. 
+    # Internal prints will go to the 'Manage App' terminal logs.
+    preds, recs = run_full_pipeline(fast_mode=True)
     return preds, recs
 
-# Premium Loading Experience
+# Premium Loading Experience (Cache-Safe)
 if "engine_ready" not in st.session_state:
-    status_box = st.empty()
-    with status_box.status("🚀 Initializing AI Pricing Engine...", expanded=True) as status:
-        def update_status(msg):
-            status.write(msg)
+    status_placeholder = st.empty()
+    with status_placeholder.status("🔄 AI Pricing Engine initializing...", expanded=True) as status:
+        status.write("📥 Fetching latest market signals...")
+        status.write("🧠 Training demand forecasting models...")
+        status.write("🔮 Simulating price-velocity curves...")
         
-        # This will either fetch from cache (instant) or run with log updates (step-by-step)
-        preds, recs = get_cached_analysis(_progress_callback=update_status)
-        status.update(label="✅ Engine Ready", state="complete", expanded=False)
+        # This will either fetch from cache (instant) or run the full pipeline
+        preds, recs = get_cached_analysis()
+        
+        status.update(label="✅ Engine Ready!", state="complete", expanded=False)
     
     st.session_state.engine_ready = True
-    status_box.empty() # Clean up the status box
+    status_placeholder.empty()
 else:
     preds, recs = get_cached_analysis()
 
