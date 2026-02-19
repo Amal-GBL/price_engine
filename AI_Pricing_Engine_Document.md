@@ -27,10 +27,12 @@ The engine currently orchestrates intelligence across:
 ## 3. Data Flow & Normalization
 The engine utilizes a warehouse-native ingestion layer (AWS RDS PostgreSQL) with several critical normalization steps:
 
-### 3.1 Historical Normalization (CTE: base_sales)
+### 3.1 Price Normalization (V5.2)
+To align disparate marketplace economics, the engine standardizes all incoming price signals into a single **Normalized Base Price**:
+- **AJIO & Flipkart Normalization**: `Normalized_Price = Selling_Price + Uplift`. (AJIO uses a fixed +65; Flipkart uses the category-specific slab fee).
 - **Status Filtering**: Exclusion of `CANCELLED` and `UNFULFILLABLE` orders to prevent demand inflation.
-- **AJIO Offset**: `Selling Price + 65` normalization ensures all channels use a comparable "Base Price" for calculation.
 - **Metadata Dedup**: Row-ranking logic ensures the latest Cost Price, MRP, and Category Name are always used.
+- **Impact**: This ensures the ML model learns demand patterns on a standardized basis, while the simulation solves for the actual **Selling Price** to be set by the business.
 
 ### 3.2 Time-Windowing
 The engine prioritizes the most relevant market signals by focusing on data starting **June 1, 2025**, ensuring the model doesn't over-rely on stale historical outliers.
@@ -112,7 +114,29 @@ The output is served via a high-performance Streamlit Dashboard (`dashboard.app`
 
 ---
 
-## 9. Future Roadmap (Phase 3 & 4)
+## 9. Operational Lifecycle & Auto-Orchestration (Self-Healing)
+The engine is designed to be fully autonomous, requiring zero manual intervention to sync logic or update data.
+
+### 9.1 Automatic 7-Step Execution
+Whenever a user opens the dashboard, the engine triggers a "Pulse Check." If the internal data is older than **1 hour (TTL)**, the 7-step orchestration pipeline runs automatically:
+1. **Extraction**: Pulls fresh sales, inventory, and guardrails from AWS RDS.
+2. **Standardization**: Normalizes Flipkart (Uplift) and AJIO (+65) selling prices.
+3. **Training**: Re-trains the XGBoost model on the latest 48-hour market signals.
+4. **Simulation**: Generates a 20-point price-velocity grid for all active SKUs.
+5. **Prediction**: AI batch-inference to predict demand for every scenario.
+6. **Scoring**: Ranks outcomes based on the Dynamic Weight Matrix.
+7. **Serving**: Hydrates the UI and exports the results to CSV/Warehouse tables.
+
+### 9.2 Logic Synchronization
+Any changes made to the underlying `pricing_ml_engine.py` (Python) or `enhanced_pricing_engine.sql` (SQL) are automatically picked up during the next execution cycle. There is no "deployment" delay; the engine is directly linked to the repository's logic layer.
+
+### 9.3 Cache Management
+- **Automatic**: The `@st.cache_data` decorator expires every 3600 seconds, ensuring data never remains stale.
+- **Manual Overwrite**: Administrators can force an immediate refresh by pressing the **"C"** key in the dashboard or clearing the browser cache, which wipes the current simulation and forces a Step 1–7 re-run.
+
+---
+
+## 10. Future Roadmap (Phase 3 & 4)
 1. **RTO Penalty Integration**: Penalizing price points that drive high Return-to-Origin rates in the profit formula.
 2. **Quick-Commerce Expansion**: Launching pricing logic for **Blinkit, Swiggy Instamart, and Zepto**.
 3. **Automated Feed Push**: Daily automated price updates to channel seller portals via API.
